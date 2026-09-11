@@ -111,20 +111,26 @@ internal static class DeviceInfoProbe
         var candidate = QcyBatteryCandidate.Parse(value);
         if (candidate is null)
         {
-            Console.WriteLine("  Candidate battery interpretation: rejected.");
+            Console.WriteLine("  Battery interpretation: rejected.");
             Console.WriteLine(value.Length < 3
-                ? "    Payload shorter than the 3 bytes the hypothesised layout requires."
-                : "    A level above 100% means the hypothesised layout does not hold here.");
+                ? "    Payload shorter than the 3 bytes the confirmed layout requires."
+                : "    A level above 100% means the confirmed layout does not hold here.");
             Console.WriteLine("    No other layout was attempted. Report the raw bytes above.");
             return;
         }
 
-        Console.WriteLine("  Candidate battery interpretation:");
+        Console.WriteLine("  Battery interpretation:");
         Console.WriteLine($"    Left:  {candidate.Left}%{Charging(candidate.LeftCharging)}");
         Console.WriteLine($"    Right: {candidate.Right}%{Charging(candidate.RightCharging)}");
-        Console.WriteLine($"    Case:  {candidate.Case}%{Charging(candidate.CaseCharging)}");
-        Console.WriteLine($"    Evidence: {QcyBatteryCandidate.Evidence} — public implementations of the QCY family; " +
-            "not yet validated on this model. Compare with the official app before believing it.");
+        Console.WriteLine("    Case:  not reported by this characteristic on the HT08.");
+        if (candidate.UnexplainedBytes.Count > 0)
+        {
+            Console.WriteLine($"    Undecoded trailing bytes: {FormatBytes([.. candidate.UnexplainedBytes])} " +
+                "(meaning unknown; deliberately not read as a case level)");
+        }
+
+        Console.WriteLine($"    Evidence: {QcyBatteryCandidate.Evidence} — left and right confirmed on HT08 hardware. " +
+            "The charging bit has not been observed set, so that bit remains unverified.");
     }
 
     private static void PrintFirmware(byte[] value)
@@ -132,13 +138,14 @@ internal static class DeviceInfoProbe
         var candidate = QcyFirmwareCandidate.Parse(value);
         if (candidate is null)
         {
-            Console.WriteLine($"  Candidate firmware interpretation: unknown format ({value.Length} bytes).");
+            Console.WriteLine($"  Firmware interpretation: unknown format ({value.Length} bytes).");
             Console.WriteLine("    Only 3-byte and 6-byte layouts are decoded. Nothing was inferred.");
             return;
         }
 
-        Console.WriteLine($"  Candidate firmware interpretation: {candidate}");
-        Console.WriteLine($"    Evidence: {QcyFirmwareCandidate.Evidence} — compare with the version shown by the official app.");
+        Console.WriteLine($"  Firmware interpretation: {candidate}");
+        Console.WriteLine($"    Evidence: {QcyFirmwareCandidate.Evidence} — the 6-byte left/right layout was " +
+            "confirmed on HT08 hardware.");
     }
 
     private static string Charging(bool charging) => charging ? " (charging bit set)" : "";

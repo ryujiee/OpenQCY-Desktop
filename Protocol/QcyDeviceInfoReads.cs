@@ -19,44 +19,56 @@ public enum QcyFormatEvidence
 }
 
 /// <summary>
-/// Candidate decoding of the proprietary battery characteristic. Constructed
-/// only when every invariant holds; a payload that does not satisfy them is
-/// rejected rather than reinterpreted under a guessed layout.
+/// Decoding of the HT08 proprietary battery characteristic. Constructed only
+/// when every invariant holds; a payload that does not satisfy them is rejected
+/// rather than reinterpreted under a guessed layout.
 /// </summary>
+/// <remarks>
+/// Unlike the N70, only the first two bytes are decoded. The HT08 returns three
+/// bytes and the third was observed as <c>0x00</c> while both earbuds reported
+/// 95%, so it is <b>not</b> treated as a case level: reporting a case at 0%
+/// would be a fabricated reading. Its meaning is unknown and it is surfaced as
+/// a raw byte instead.
+/// </remarks>
 public sealed record QcyBatteryCandidate(
     byte Left,
     byte Right,
-    byte Case,
     bool LeftCharging,
     bool RightCharging,
-    bool CaseCharging)
+    IReadOnlyList<byte> UnexplainedBytes)
 {
-    public static QcyFormatEvidence Evidence => QcyFormatEvidence.PublicUnconfirmed;
+    /// <summary>
+    /// The left and right levels were confirmed on a contributor's HT08 on
+    /// 2026-09-11. The charging bit was <b>not</b> exercised: bit 7 was clear in
+    /// every observed byte, so its meaning remains carried over from the QCY
+    /// family and is still unverified on this model.
+    /// </summary>
+    public static QcyFormatEvidence Evidence => QcyFormatEvidence.HardwareConfirmed;
 
     public static QcyBatteryCandidate? Parse(ReadOnlySpan<byte> value)
     {
+        // The confirmed HT08 payload is three bytes; a shorter one is not the
+        // known layout and is not zero-filled to fit.
         if (value.Length < 3)
         {
             return null;
         }
 
-        // Reject instead of clamping: a level above 100 means the hypothesised
-        // layout does not hold for this model, which is a result worth seeing.
-        for (var index = 0; index < 3; index++)
+        // Reject instead of clamping: a level above 100 means the layout does
+        // not hold for this payload, which is a result worth seeing. Only the
+        // two decoded bytes are validated; the rest are not claimed to be
+        // levels, so no invariant is asserted over them.
+        if ((value[0] & 0x7F) > 100 || (value[1] & 0x7F) > 100)
         {
-            if ((value[index] & 0x7F) > 100)
-            {
-                return null;
-            }
+            return null;
         }
 
         return new QcyBatteryCandidate(
             (byte)(value[0] & 0x7F),
             (byte)(value[1] & 0x7F),
-            (byte)(value[2] & 0x7F),
             (value[0] & 0x80) != 0,
             (value[1] & 0x80) != 0,
-            (value[2] & 0x80) != 0);
+            value[2..].ToArray());
     }
 }
 
@@ -67,7 +79,12 @@ public sealed record QcyBatteryCandidate(
 /// </summary>
 public static class QcyFirmwareCandidate
 {
-    public static QcyFormatEvidence Evidence => QcyFormatEvidence.PublicUnconfirmed;
+    /// <summary>
+    /// The six-byte left/right layout was confirmed on a contributor's HT08 on
+    /// 2026-09-11, which returned <c>02 00 06 02 00 06</c> for firmware 2.0.6.
+    /// The three-byte layout is still only documented by public sources.
+    /// </summary>
+    public static QcyFormatEvidence Evidence => QcyFormatEvidence.HardwareConfirmed;
 
     public static string? Parse(ReadOnlySpan<byte> value) => value.Length switch
     {

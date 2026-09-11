@@ -101,7 +101,7 @@ Discovery uses the existing scan and a separate, small `WindowsGattDiscovery` en
 
 ## Opt-in read of the proprietary device-information characteristics
 
-Status: **experimental diagnostic, not a supported feature.** Battery and firmware remain Unknown for the HT08 until a contributor validates the decoded values against the physical device.
+Status: **diagnostic only; the payload layouts are hardware-confirmed, the feature is not.** Reading battery and firmware works on the HT08 and the decoded layouts are validated, but nothing is wired into the desktop application and no HT08 setting can be changed. Case battery is not available from this path.
 
 `--read-ht08-device-info` performs at most two direct ATT reads and nothing else:
 
@@ -120,16 +120,34 @@ An ATT Read Request carries no payload and cannot modify device state, whereas t
 
 `WindowsGattDiscovery` is a `static class`, so it cannot implement `IBluetoothDeviceConnection` even accidentally; it returns value records and offers no write or subscription API. The read path therefore cannot be handed to `QcyDeviceClient`.
 
-### Hypothesised layouts
+### Hardware result
 
-Both are labelled `QcyFormatEvidence.PublicUnconfirmed` and are printed as candidates, never as device state.
+A contributor ran the opt-in read against a physical MeloBuds Pro on 2026-09-11. Both reads returned `Success`.
 
-| Characteristic | Hypothesis | Rejection rule |
+| Service / characteristic | Payload | Decoded |
 | --- | --- | --- |
-| `0008` | ≥ 3 bytes; byte 0 left, 1 right, 2 case; bit 7 charging, bits 0-6 percentage | Any `value & 0x7F` above 100, or fewer than 3 bytes. No other layout is attempted. |
-| `0007` | 3 bytes `a.b.c`, or 6 bytes `L a.b.c · R d.e.f` | Any other length is reported as an unknown format. No ASCII or heuristic fallback. |
+| `A001` / `0008` | 3 bytes, `5F 5F 00` | Left 95%, right 95%; third byte undecoded |
+| `A001` / `0007` | 6 bytes, `02 00 06 02 00 06` | Firmware `L 2.0.6 · R 2.0.6` |
 
-Raw bytes of these two characteristics are printed for diagnosis. Nothing is persisted, no fixture is generated, and no address or other characteristic is printed. Every fixture in the test suite is synthetic.
+Battery and firmware values are not secrets and carry no device identifier, so they are recorded here as protocol evidence. No address, serial number, or manufacturer payload was recorded.
+
+### Confirmed layouts
+
+| Characteristic | Layout | Evidence |
+| --- | --- | --- |
+| `0008` byte 0, byte 1 | Left and right level in bits 0-6 | **Hardware-confirmed** on HT08 |
+| `0008` bit 7 | Charging flag in the QCY family | **Unverified**: never observed set on this model |
+| `0008` byte 2 | **Unknown** | Observed `0x00` while both earbuds reported 95% |
+| `0007` 6 bytes | `L a.b.c · R d.e.f` | **Hardware-confirmed** on HT08 |
+| `0007` 3 bytes | `a.b.c` | Public sources only; not observed here |
+
+The third battery byte is deliberately **not** decoded as a case level. A case cannot plausibly be at 0% while both earbuds report 95%, so presenting it as one would fabricate a reading. `QcyBatteryCandidate` exposes no case member at all, and the byte is surfaced verbatim as an undecoded trailing byte. A value above 100 there is preserved rather than rejected, because no invariant is claimed over a field whose meaning is unknown.
+
+**Case battery is therefore not available from this characteristic.** It is not established that the HT08 cannot report it, only that this read does not. The remaining read-only lead is the 24-byte manufacturer payload in the advertisement, whose layout is undecoded; the N70 carries left, right, and case levels there. The other family route, query opcode `0x2F`, is a proprietary *write* to `1001` and stays out of scope.
+
+Rejection rules are unchanged: fewer than 3 bytes, or a decoded level above 100, rejects the battery payload without attempting another layout; any firmware length other than 3 or 6 is reported as an unknown format with no ASCII or heuristic fallback.
+
+Raw bytes of these two characteristics are printed for diagnosis. The tool persists nothing and generates no fixture; the payloads above were transcribed into the test suite deliberately, as reviewed protocol evidence.
 
 ## External evidence and licensing
 
