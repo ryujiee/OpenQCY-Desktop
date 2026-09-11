@@ -27,6 +27,13 @@ if (options.DiscoveryOnly)
     return await DiscoveryProbe.RunAsync(options);
 }
 
+// Never reached from --discovery-only or from the desktop app: the opt-in
+// read is its own mode and must be requested explicitly.
+if (options.ReadHt08DeviceInfo)
+{
+    return await DeviceInfoProbe.RunAsync();
+}
+
 var willDisableWearDetection = options.DisableWearDetection;
 var windowsBatteryOnly = options.WindowsBatteryOnly;
 Console.WriteLine(willDisableWearDetection

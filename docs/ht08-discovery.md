@@ -99,6 +99,38 @@ The cache no longer labels every A001 service N70: Windows-cache enumeration now
 
 Discovery uses the existing scan and a separate, small `WindowsGattDiscovery` entry point in the Bluetooth layer. It returns value records, not a writable connection. The Probe branches into this path before reaching N70 initialization. Parsing/allowlisting stays in Protocol; Windows APIs stay in Bluetooth; rendering stays in Probe. The WinUI/ViewModel and saved profile format are unchanged.
 
+## Opt-in read of the proprietary device-information characteristics
+
+Status: **experimental diagnostic, not a supported feature.** Battery and firmware remain Unknown for the HT08 until a contributor validates the decoded values against the physical device.
+
+`--read-ht08-device-info` performs at most two direct ATT reads and nothing else:
+
+1. `A001` / `0008`, the proprietary battery characteristic.
+2. `A001` / `0007`, the proprietary firmware characteristic, attempted only if the first read did not throw.
+
+The mode is separate from `--discovery-only`, which never performs it, and the desktop application never reaches this code. There is no loop, no polling, no retry, no subscription, no CCCD write, no `0xFF` frame, no `0xFE` query, and no fallback to opcodes `0x2F` or `0x30`. A failed read prints its ATT status and no alternative method is attempted.
+
+### Why a read and not a query
+
+An ATT Read Request carries no payload and cannot modify device state, whereas the `0xFE` query the N70 path uses is a GATT *write* of a proprietary frame to `1001`. The two characteristics declare `Read` on the contributor's hardware, and both public implementations read them directly without subscribing. That makes this the least invasive way to learn anything about HT08 battery and firmware.
+
+### Identity gate
+
+`QcyDeviceInfoReads.IsModelAllowed` requires every condition at once: company ID `0x521C`, vendor ID `19786`, the `Ht08` profile, model code `HT08`, `IdentityEvidence.HardwareConfirmed`, and `SupportsN70Control == false`. The public-catalog ID `19785`, the Pro Plus ID `19790`, unknown IDs, and the N70 are all refused before any read. The gate is applied in the Probe and re-applied inside the Bluetooth layer, so a single check is never the only thing between the radio and an unverified model.
+
+`WindowsGattDiscovery` is a `static class`, so it cannot implement `IBluetoothDeviceConnection` even accidentally; it returns value records and offers no write or subscription API. The read path therefore cannot be handed to `QcyDeviceClient`.
+
+### Hypothesised layouts
+
+Both are labelled `QcyFormatEvidence.PublicUnconfirmed` and are printed as candidates, never as device state.
+
+| Characteristic | Hypothesis | Rejection rule |
+| --- | --- | --- |
+| `0008` | ≥ 3 bytes; byte 0 left, 1 right, 2 case; bit 7 charging, bits 0-6 percentage | Any `value & 0x7F` above 100, or fewer than 3 bytes. No other layout is attempted. |
+| `0007` | 3 bytes `a.b.c`, or 6 bytes `L a.b.c · R d.e.f` | Any other length is reported as an unknown format. No ASCII or heuristic fallback. |
+
+Raw bytes of these two characteristics are printed for diagnosis. Nothing is persisted, no fixture is generated, and no address or other characteristic is printed. Every fixture in the test suite is synthetic.
+
 ## External evidence and licensing
 
 Reviewed 2026-09-11; the implementation is independently written C#. No external source code, product database, captures, or assets were copied into this repository.
