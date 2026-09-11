@@ -75,7 +75,7 @@ internal static class DeviceInfoProbe
                 Console.WriteLine($"  Raw: {FormatBytes(read.Value)}");
                 if (read.Characteristic == QcyDeviceInfoReads.Battery)
                 {
-                    PrintBattery(read.Value);
+                    PrintBattery(read.Value, profile);
                 }
                 else if (read.Characteristic == QcyDeviceInfoReads.Firmware)
                 {
@@ -106,10 +106,10 @@ internal static class DeviceInfoProbe
         }
     }
 
-    private static void PrintBattery(byte[] value)
+    private static void PrintBattery(byte[] value, QcyModelProfile profile)
     {
-        var candidate = QcyBatteryCandidate.Parse(value);
-        if (candidate is null)
+        var reading = QcyBatteryReading.Parse(value, profile);
+        if (reading is null)
         {
             Console.WriteLine("  Battery interpretation: rejected.");
             Console.WriteLine(value.Length < 3
@@ -120,32 +120,37 @@ internal static class DeviceInfoProbe
         }
 
         Console.WriteLine("  Battery interpretation:");
-        Console.WriteLine($"    Left:  {candidate.Left}%{Charging(candidate.LeftCharging)}");
-        Console.WriteLine($"    Right: {candidate.Right}%{Charging(candidate.RightCharging)}");
-        Console.WriteLine("    Case:  not reported by this characteristic on the HT08.");
-        if (candidate.UnexplainedBytes.Count > 0)
+        Console.WriteLine($"    Left:  {reading.Left}%{Charging(reading.LeftCharging)}");
+        Console.WriteLine($"    Right: {reading.Right}%{Charging(reading.RightCharging)}");
+        Console.WriteLine(profile.SupportsCaseBattery
+            ? $"    Case:  {reading.Case}%{Charging(reading.CaseCharging)}"
+            : $"    Case:  — not supported by the {profile.ModelCode}; the official QCY application does not " +
+                "show one for this model either.");
+
+        if (reading.UndecodedBytes.Count > 0)
         {
-            Console.WriteLine($"    Undecoded trailing bytes: {FormatBytes([.. candidate.UnexplainedBytes])} " +
-                "(meaning unknown; deliberately not read as a case level)");
+            Console.WriteLine($"    Undecoded trailing bytes: {FormatBytes([.. reading.UndecodedBytes])} " +
+                "(meaning unknown; deliberately not presented as a level)");
         }
 
-        Console.WriteLine($"    Evidence: {QcyBatteryCandidate.Evidence} — left and right confirmed on HT08 hardware. " +
+        Console.WriteLine($"    Evidence: {QcyBatteryReading.Evidence} — left and right confirmed on HT08 hardware. " +
             "The charging bit has not been observed set, so that bit remains unverified.");
     }
 
     private static void PrintFirmware(byte[] value)
     {
-        var candidate = QcyFirmwareCandidate.Parse(value);
-        if (candidate is null)
+        var reading = QcyFirmwareReading.Parse(value);
+        if (reading is null)
         {
             Console.WriteLine($"  Firmware interpretation: unknown format ({value.Length} bytes).");
             Console.WriteLine("    Only 3-byte and 6-byte layouts are decoded. Nothing was inferred.");
             return;
         }
 
-        Console.WriteLine($"  Firmware interpretation: {candidate}");
-        Console.WriteLine($"    Evidence: {QcyFirmwareCandidate.Evidence} — the 6-byte left/right layout was " +
-            "confirmed on HT08 hardware.");
+        Console.WriteLine($"  Firmware interpretation: {reading.Display}");
+        Console.WriteLine($"    Left:  {reading.Left}");
+        Console.WriteLine($"    Right: {reading.Right ?? "not reported by this layout"}");
+        Console.WriteLine($"    Evidence: {reading.Evidence}");
     }
 
     private static string Charging(bool charging) => charging ? " (charging bit set)" : "";

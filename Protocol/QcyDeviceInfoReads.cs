@@ -24,18 +24,19 @@ public enum QcyFormatEvidence
 /// rather than reinterpreted under a guessed layout.
 /// </summary>
 /// <remarks>
-/// Unlike the N70, only the first two bytes are decoded. The HT08 returns three
-/// bytes and the third was observed as <c>0x00</c> while both earbuds reported
-/// 95%, so it is <b>not</b> treated as a case level: reporting a case at 0%
-/// would be a fabricated reading. Its meaning is unknown and it is surfaced as
-/// a raw byte instead.
+/// Which sides exist is decided by the model profile, never by the payload. A
+/// model that does not report a case level yields <see cref="Case"/> as
+/// <see langword="null"/> and keeps the undecoded bytes verbatim, so a model
+/// where 0% is a genuine case state keeps reporting it.
 /// </remarks>
-public sealed record QcyBatteryCandidate(
-    byte Left,
-    byte Right,
+public sealed record QcyBatteryReading(
+    byte? Left,
+    byte? Right,
+    byte? Case,
     bool LeftCharging,
     bool RightCharging,
-    IReadOnlyList<byte> UnexplainedBytes)
+    bool CaseCharging,
+    IReadOnlyList<byte> UndecodedBytes)
 {
     /// <summary>
     /// The left and right levels were confirmed on a contributor's HT08 on
@@ -45,51 +46,68 @@ public sealed record QcyBatteryCandidate(
     /// </summary>
     public static QcyFormatEvidence Evidence => QcyFormatEvidence.HardwareConfirmed;
 
-    public static QcyBatteryCandidate? Parse(ReadOnlySpan<byte> value)
+    public static QcyBatteryReading? Parse(ReadOnlySpan<byte> value, QcyModelProfile profile)
     {
-        // The confirmed HT08 payload is three bytes; a shorter one is not the
-        // known layout and is not zero-filled to fit.
-        if (value.Length < 3)
+        ArgumentNullException.ThrowIfNull(profile);
+
+        // The confirmed payload is three bytes; a shorter one is not the known
+        // layout and is not zero-filled to fit.
+        if (value.Length < 3 || !profile.SupportsLeftBattery || !profile.SupportsRightBattery)
         {
             return null;
         }
 
         // Reject instead of clamping: a level above 100 means the layout does
-        // not hold for this payload, which is a result worth seeing. Only the
-        // two decoded bytes are validated; the rest are not claimed to be
-        // levels, so no invariant is asserted over them.
-        if ((value[0] & 0x7F) > 100 || (value[1] & 0x7F) > 100)
+        // not hold for this payload, which is a result worth seeing. Only bytes
+        // this model actually reports are validated; a byte the profile does
+        // not claim is a level carries no invariant.
+        if (Level(value[0]) > 100 || Level(value[1]) > 100)
         {
             return null;
         }
 
-        return new QcyBatteryCandidate(
-            (byte)(value[0] & 0x7F),
-            (byte)(value[1] & 0x7F),
-            (value[0] & 0x80) != 0,
-            (value[1] & 0x80) != 0,
-            value[2..].ToArray());
+        if (profile.SupportsCaseBattery && Level(value[2]) > 100)
+        {
+            return null;
+        }
+
+        return new QcyBatteryReading(
+            Level(value[0]),
+            Level(value[1]),
+            profile.SupportsCaseBattery ? Level(value[2]) : null,
+            Charging(value[0]),
+            Charging(value[1]),
+            profile.SupportsCaseBattery && Charging(value[2]),
+            profile.SupportsCaseBattery ? value[3..].ToArray() : value[2..].ToArray());
     }
+
+    private static byte Level(byte value) => (byte)(value & 0x7F);
+
+    private static bool Charging(byte value) => (value & 0x80) != 0;
 }
 
 /// <summary>
-/// Candidate decoding of the proprietary firmware characteristic. Only the two
-/// lengths documented by public implementations are decoded; any other length
-/// is reported as an unknown format, with no ASCII or heuristic fallback.
+/// Decoding of the proprietary firmware characteristic. Only the two documented
+/// lengths are decoded; any other length is reported as an unknown format, with
+/// no ASCII or heuristic fallback. Each layout carries its own evidence level.
 /// </summary>
-public static class QcyFirmwareCandidate
+public sealed record QcyFirmwareReading(string Left, string? Right, QcyFormatEvidence Evidence)
 {
-    /// <summary>
-    /// The six-byte left/right layout was confirmed on a contributor's HT08 on
-    /// 2026-09-11, which returned <c>02 00 06 02 00 06</c> for firmware 2.0.6.
-    /// The three-byte layout is still only documented by public sources.
-    /// </summary>
-    public static QcyFormatEvidence Evidence => QcyFormatEvidence.HardwareConfirmed;
+    public string Display => Right is null ? Left : $"L {Left} · R {Right}";
 
-    public static string? Parse(ReadOnlySpan<byte> value) => value.Length switch
+    public static QcyFirmwareReading? Parse(ReadOnlySpan<byte> value) => value.Length switch
     {
-        3 => $"{value[0]}.{value[1]}.{value[2]}",
-        6 => $"L {value[0]}.{value[1]}.{value[2]} · R {value[3]}.{value[4]}.{value[5]}",
+        // Confirmed on a contributor's HT08 on 2026-09-11: 02 00 06 02 00 06
+        // for firmware 2.0.6 on both earbuds.
+        6 => new(
+            $"{value[0]}.{value[1]}.{value[2]}",
+            $"{value[3]}.{value[4]}.{value[5]}",
+            QcyFormatEvidence.HardwareConfirmed),
+
+        // Documented by public sources only; not observed on an HT08, so this
+        // layout must not inherit the six-byte confirmation.
+        3 => new($"{value[0]}.{value[1]}.{value[2]}", null, QcyFormatEvidence.PublicUnconfirmed),
+
         _ => null,
     };
 }
@@ -136,6 +154,9 @@ public static class QcyDeviceInfoReads
         return ReferenceEquals(profile, QcyModelProfile.Ht08) &&
             profile.ModelCode == "HT08" &&
             profile.IdentityEvidence == QcyIdentityEvidence.HardwareConfirmed &&
-            !profile.SupportsN70Control;
+            !profile.SupportsN70Control &&
+            profile.SupportsLeftBattery &&
+            profile.SupportsRightBattery &&
+            profile.SupportsFirmwareRead;
     }
 }

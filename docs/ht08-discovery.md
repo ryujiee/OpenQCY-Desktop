@@ -131,19 +131,37 @@ A contributor ran the opt-in read against a physical MeloBuds Pro on 2026-09-11.
 
 Battery and firmware values are not secrets and carry no device identifier, so they are recorded here as protocol evidence. No address, serial number, or manufacturer payload was recorded.
 
+The firmware decoding is corroborated externally: the official QCY application reports `2.0.6` as the version installed on the same earbuds.
+
 ### Confirmed layouts
 
 | Characteristic | Layout | Evidence |
 | --- | --- | --- |
 | `0008` byte 0, byte 1 | Left and right level in bits 0-6 | **Hardware-confirmed** on HT08 |
 | `0008` bit 7 | Charging flag in the QCY family | **Unverified**: never observed set on this model |
-| `0008` byte 2 | **Unknown** | Observed `0x00` while both earbuds reported 95% |
-| `0007` 6 bytes | `L a.b.c · R d.e.f` | **Hardware-confirmed** on HT08 |
-| `0007` 3 bytes | `a.b.c` | Public sources only; not observed here |
+| `0008` byte 2 | **Unknown**, not a case level | Observed `0x00` while both earbuds reported 95% |
+| `0007` 6 bytes | `L a.b.c · R d.e.f` | **Hardware-confirmed** on HT08, matching the official app |
+| `0007` 3 bytes | `a.b.c` | Public sources only; not observed here, and labelled `PublicUnconfirmed` separately |
 
-The third battery byte is deliberately **not** decoded as a case level. A case cannot plausibly be at 0% while both earbuds report 95%, so presenting it as one would fabricate a reading. `QcyBatteryCandidate` exposes no case member at all, and the byte is surfaced verbatim as an undecoded trailing byte. A value above 100 there is preserved rather than rejected, because no invariant is claimed over a field whose meaning is unknown.
+### Case battery is unsupported on the HT08
 
-**Case battery is therefore not available from this characteristic.** It is not established that the HT08 cannot report it, only that this read does not. The remaining read-only lead is the 24-byte manufacturer payload in the advertisement, whose layout is undecoded; the N70 carries left, right, and case levels there. The other family route, query opcode `0x2F`, is a proprietary *write* to `1001` and stays out of scope.
+Two independent observations agree: `A001/0008` returned `0x00` in its third byte while both earbuds reported 95%, and **the official QCY application does not show a case percentage for this model** at all. The HT08 is therefore modelled as a device that does not report a case level.
+
+This is expressed as a per-model capability, `QcyModelProfile.SupportsCaseBattery`, and never as a payload heuristic. A rule such as "a zero case byte means no case" would be wrong for the N70, where 0% is a valid state, so the decision belongs to the profile. `QcyBatteryReading.Parse` takes the profile and decodes a case level only for models that declare one; for the HT08 the byte stays in `UndecodedBytes` and `Case` is `null`. No invariant is asserted over a byte the profile does not claim is a level, so a value above 100 there is preserved rather than rejected.
+
+The N70 keeps `SupportsCaseBattery = true` and its existing behaviour is unchanged; the capability flags are additive and the N70 command path does not consult them.
+
+### HT08 capabilities
+
+| Capability | Value |
+| --- | --- |
+| `SupportsLeftBattery` | `true` (hardware-confirmed) |
+| `SupportsRightBattery` | `true` (hardware-confirmed) |
+| `SupportsCaseBattery` | `false` (not reported by the device or the official app) |
+| `SupportsFirmwareRead` | `true` (hardware-confirmed, 6-byte layout) |
+| `SupportsN70Control` | `false` (command protocol unverified) |
+
+A UI would render the HT08 as left and right percentages, a case shown as `—`, and firmware `L 2.0.6 · R 2.0.6`. Wiring this into the desktop window is deliberately **not** part of this milestone: `MainPageViewModel` is built around a connected `QcyDeviceClient` session, which the HT08 must not create. Presenting HT08 state in the app therefore needs a read-only device-state path in the view model, which is the recommended next step once ANC research settles what else the model can report.
 
 Rejection rules are unchanged: fewer than 3 bytes, or a decoded level above 100, rejects the battery payload without attempting another layout; any firmware length other than 3 or 6 is reported as an unknown format with no ASCII or heuristic fallback.
 

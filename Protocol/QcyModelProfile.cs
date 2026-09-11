@@ -31,34 +31,73 @@ public sealed class QcyModelProfile
         string name,
         string? modelCode,
         QcyIdentityEvidence identityEvidence,
-        bool supportsN70Control = false)
+        bool supportsN70Control = false,
+        bool supportsLeftBattery = false,
+        bool supportsRightBattery = false,
+        bool supportsCaseBattery = false,
+        bool supportsFirmwareRead = false)
     {
         Name = name;
         ModelCode = modelCode;
         IdentityEvidence = identityEvidence;
         SupportsN70Control = supportsN70Control;
+        SupportsLeftBattery = supportsLeftBattery;
+        SupportsRightBattery = supportsRightBattery;
+        SupportsCaseBattery = supportsCaseBattery;
+        SupportsFirmwareRead = supportsFirmwareRead;
     }
 
     public string Name { get; }
     public string? ModelCode { get; }
     public QcyIdentityEvidence IdentityEvidence { get; }
+
+    /// <summary>Whether the N70 proprietary command protocol may be used.</summary>
     public bool SupportsN70Control { get; }
+
+    public bool SupportsLeftBattery { get; }
+    public bool SupportsRightBattery { get; }
+
+    /// <summary>
+    /// Whether this model reports a case level at all. It is a per-model fact,
+    /// never inferred from a payload: a model where 0% is a valid case state
+    /// must keep reporting it.
+    /// </summary>
+    public bool SupportsCaseBattery { get; }
+
+    public bool SupportsFirmwareRead { get; }
 
     public static QcyModelProfile Unknown { get; } =
         new("Unknown QCY device", null, QcyIdentityEvidence.None);
 
     // Validated on hardware on 2026-08-03; see docs/protocol-research.md.
-    public static QcyModelProfile N70 { get; } =
-        new("QCY MeloBuds N70", "HT18", QcyIdentityEvidence.HardwareConfirmed, supportsN70Control: true);
+    public static QcyModelProfile N70 { get; } = new(
+        "QCY MeloBuds N70",
+        "HT18",
+        QcyIdentityEvidence.HardwareConfirmed,
+        supportsN70Control: true,
+        supportsLeftBattery: true,
+        supportsRightBattery: true,
+        supportsCaseBattery: true,
+        supportsFirmwareRead: true);
 
     // Vendor ID 19786 (0x4D4A) observed on a contributor's MeloBuds Pro on
-    // 2026-09-11. Identity only: no HT08 command, query, or proprietary read is
-    // enabled, because the HT08 command protocol is still unverified.
-    public static QcyModelProfile Ht08 { get; } =
-        new("QCY MeloBuds Pro", "HT08", QcyIdentityEvidence.HardwareConfirmed);
+    // 2026-09-11, along with the left/right battery and firmware layouts.
+    // The case level is unsupported: A001/0008 returned 0x00 in its third byte
+    // while both earbuds reported 95%, and the official QCY application does
+    // not show a case percentage for this model either. No HT08 command or
+    // query is enabled; the two supported reads are plain ATT reads.
+    public static QcyModelProfile Ht08 { get; } = new(
+        "QCY MeloBuds Pro",
+        "HT08",
+        QcyIdentityEvidence.HardwareConfirmed,
+        supportsLeftBattery: true,
+        supportsRightBattery: true,
+        supportsCaseBattery: false,
+        supportsFirmwareRead: true);
 
     // Vendor ID 19785 is listed as HT08 by a public catalog only. No
-    // contributor has confirmed it, so it keeps the weaker evidence level.
+    // contributor has confirmed it, so it keeps the weaker evidence level and
+    // gains no capability from the confirmation of the neighbouring ID.
     public static QcyModelProfile Ht08Catalog { get; } =
         new("QCY MeloBuds Pro", "HT08", QcyIdentityEvidence.PublicCatalog);
 

@@ -103,7 +103,7 @@ public sealed class QcyDeviceInfoReadTests
     {
         // Observed on a contributor's HT08 on 2026-09-11: A001/0008 returned
         // three bytes, 5F 5F 00, with both earbuds reporting 95%.
-        var candidate = QcyBatteryCandidate.Parse([0x5F, 0x5F, 0x00]);
+        var candidate = QcyBatteryReading.Parse([0x5F, 0x5F, 0x00], QcyModelProfile.Ht08);
         Assert.IsNotNull(candidate);
         Assert.AreEqual((byte)95, candidate.Left);
         Assert.AreEqual((byte)95, candidate.Right);
@@ -112,13 +112,13 @@ public sealed class QcyDeviceInfoReadTests
 
         // The third byte must stay undecoded. Reporting it as a case level
         // would have fabricated a 0% case while both earbuds were at 95%.
-        CollectionAssert.AreEqual(new byte[] { 0x00 }, candidate.UnexplainedBytes.ToArray());
+        CollectionAssert.AreEqual(new byte[] { 0x00 }, candidate.UndecodedBytes.ToArray());
     }
 
     [TestMethod]
     public void BatteryDecodesLevelsAndTheChargingBit()
     {
-        var candidate = QcyBatteryCandidate.Parse([80, 70, 60]);
+        var candidate = QcyBatteryReading.Parse([80, 70, 60], QcyModelProfile.Ht08);
         Assert.IsNotNull(candidate);
         Assert.AreEqual((byte)80, candidate.Left);
         Assert.AreEqual((byte)70, candidate.Right);
@@ -127,14 +127,14 @@ public sealed class QcyDeviceInfoReadTests
 
         // Bit 7 marks charging in the QCY family and must not leak into the
         // percentage. This bit has not yet been observed set on HT08 hardware.
-        var charging = QcyBatteryCandidate.Parse([0x80 | 80, 70, 0x00]);
+        var charging = QcyBatteryReading.Parse([0x80 | 80, 70, 0x00], QcyModelProfile.Ht08);
         Assert.IsNotNull(charging);
         Assert.AreEqual((byte)80, charging.Left);
         Assert.IsTrue(charging.LeftCharging);
         Assert.AreEqual((byte)70, charging.Right);
         Assert.IsFalse(charging.RightCharging);
 
-        var bothCharging = QcyBatteryCandidate.Parse([0x80 | 80, 0x80 | 70, 0x00]);
+        var bothCharging = QcyBatteryReading.Parse([0x80 | 80, 0x80 | 70, 0x00], QcyModelProfile.Ht08);
         Assert.IsNotNull(bothCharging);
         Assert.IsTrue(bothCharging.LeftCharging);
         Assert.IsTrue(bothCharging.RightCharging);
@@ -143,17 +143,17 @@ public sealed class QcyDeviceInfoReadTests
     [TestMethod]
     public void BatteryAcceptsTheBoundaryLevels()
     {
-        var empty = QcyBatteryCandidate.Parse([0, 0, 0]);
+        var empty = QcyBatteryReading.Parse([0, 0, 0], QcyModelProfile.Ht08);
         Assert.IsNotNull(empty);
         Assert.AreEqual((byte)0, empty.Left);
         Assert.AreEqual((byte)0, empty.Right);
 
-        var full = QcyBatteryCandidate.Parse([100, 100, 0]);
+        var full = QcyBatteryReading.Parse([100, 100, 0], QcyModelProfile.Ht08);
         Assert.IsNotNull(full);
         Assert.AreEqual((byte)100, full.Left);
         Assert.AreEqual((byte)100, full.Right);
 
-        var fullCharging = QcyBatteryCandidate.Parse([0x80 | 100, 0x80 | 100, 0x00]);
+        var fullCharging = QcyBatteryReading.Parse([0x80 | 100, 0x80 | 100, 0x00], QcyModelProfile.Ht08);
         Assert.IsNotNull(fullCharging);
         Assert.AreEqual((byte)100, fullCharging.Left);
         Assert.AreEqual((byte)100, fullCharging.Right);
@@ -170,13 +170,13 @@ public sealed class QcyDeviceInfoReadTests
             [0x80 | 101, 70, 0], [0xFF, 0xFF, 0xFF],
         })
         {
-            Assert.IsNull(QcyBatteryCandidate.Parse(payload));
+            Assert.IsNull(QcyBatteryReading.Parse(payload, QcyModelProfile.Ht08));
         }
 
         // Short payloads are rejected, never zero-filled.
         foreach (var payload in new byte[][] { [], [80], [80, 70] })
         {
-            Assert.IsNull(QcyBatteryCandidate.Parse(payload));
+            Assert.IsNull(QcyBatteryReading.Parse(payload, QcyModelProfile.Ht08));
         }
     }
 
@@ -186,61 +186,134 @@ public sealed class QcyDeviceInfoReadTests
         // The third byte is not validated as a level and not decoded, so a
         // value above 100 there is preserved verbatim rather than rejected or
         // presented as a case percentage.
-        var candidate = QcyBatteryCandidate.Parse([80, 70, 0xFF]);
+        var candidate = QcyBatteryReading.Parse([80, 70, 0xFF], QcyModelProfile.Ht08);
         Assert.IsNotNull(candidate);
         Assert.AreEqual((byte)80, candidate.Left);
         Assert.AreEqual((byte)70, candidate.Right);
-        CollectionAssert.AreEqual(new byte[] { 0xFF }, candidate.UnexplainedBytes.ToArray());
+        CollectionAssert.AreEqual(new byte[] { 0xFF }, candidate.UndecodedBytes.ToArray());
 
-        // The record exposes no case member at all, so no caller can surface
-        // one; trailing bytes beyond the third are preserved too.
-        Assert.IsEmpty(typeof(QcyBatteryCandidate).GetProperties()
-            .Where(property => property.Name.Contains("Case", StringComparison.OrdinalIgnoreCase))
-            .ToArray());
+        Assert.IsNull(candidate.Case);
+        Assert.IsFalse(candidate.CaseCharging);
 
-        var longer = QcyBatteryCandidate.Parse([80, 70, 60, 0xAB, 0xCD]);
+        // Trailing bytes beyond the third are preserved too.
+        var longer = QcyBatteryReading.Parse([80, 70, 60, 0xAB, 0xCD], QcyModelProfile.Ht08);
         Assert.IsNotNull(longer);
-        CollectionAssert.AreEqual(new byte[] { 60, 0xAB, 0xCD }, longer.UnexplainedBytes.ToArray());
+        Assert.IsNull(longer.Case);
+        CollectionAssert.AreEqual(new byte[] { 60, 0xAB, 0xCD }, longer.UndecodedBytes.ToArray());
+    }
+
+    [TestMethod]
+    public void CaseSupportIsAProfileFactNotAPayloadHeuristic()
+    {
+        // The HT08 does not report a case level, so 0x00 in the third byte is
+        // never surfaced as 0%.
+        Assert.IsFalse(QcyModelProfile.Ht08.SupportsCaseBattery);
+        var ht08 = QcyBatteryReading.Parse([0x5F, 0x5F, 0x00], QcyModelProfile.Ht08);
+        Assert.IsNotNull(ht08);
+        Assert.IsNull(ht08.Case);
+
+        // A model that does report a case must keep reporting it, including a
+        // genuine 0%. The rule is per-profile, never "a zero byte means null".
+        Assert.IsTrue(QcyModelProfile.N70.SupportsCaseBattery);
+        var n70 = QcyBatteryReading.Parse([0x5F, 0x5F, 0x00], QcyModelProfile.N70);
+        Assert.IsNotNull(n70);
+        Assert.AreEqual((byte)0, n70.Case);
+        Assert.IsEmpty(n70.UndecodedBytes.ToArray());
+
+        // A profile without the level capabilities decodes nothing at all.
+        foreach (var profile in new[] { QcyModelProfile.Unknown, QcyModelProfile.Ht08Catalog })
+        {
+            Assert.IsFalse(profile.SupportsLeftBattery);
+            Assert.IsNull(QcyBatteryReading.Parse([0x5F, 0x5F, 0x00], profile));
+        }
+    }
+
+    [TestMethod]
+    public void Ht08CapabilitiesDescribeReadOnlySupportWithoutControl()
+    {
+        var profile = QcyModelProfile.Ht08;
+        Assert.IsTrue(profile.SupportsLeftBattery);
+        Assert.IsTrue(profile.SupportsRightBattery);
+        Assert.IsFalse(profile.SupportsCaseBattery);
+        Assert.IsTrue(profile.SupportsFirmwareRead);
+        Assert.IsFalse(profile.SupportsN70Control);
+
+        // The N70 keeps every capability it had, including the case level.
+        Assert.IsTrue(QcyModelProfile.N70.SupportsN70Control);
+        Assert.IsTrue(QcyModelProfile.N70.SupportsCaseBattery);
+        Assert.IsTrue(QcyModelProfile.N70.SupportsFirmwareRead);
+
+        // Unconfirmed and unknown models gain nothing.
+        foreach (var other in new[] { QcyModelProfile.Ht08Catalog, QcyModelProfile.Unknown })
+        {
+            Assert.IsFalse(other.SupportsLeftBattery);
+            Assert.IsFalse(other.SupportsRightBattery);
+            Assert.IsFalse(other.SupportsCaseBattery);
+            Assert.IsFalse(other.SupportsFirmwareRead);
+            Assert.IsFalse(other.SupportsN70Control);
+        }
     }
 
     [TestMethod]
     public void FirmwareMatchesThePayloadObservedOnHt08Hardware()
     {
         // Observed on a contributor's HT08 on 2026-09-11: A001/0007 returned
-        // six bytes, 02 00 06 02 00 06, for firmware 2.0.6 on both earbuds.
-        Assert.AreEqual("L 2.0.6 · R 2.0.6", QcyFirmwareCandidate.Parse([0x02, 0x00, 0x06, 0x02, 0x00, 0x06]));
+        // six bytes, 02 00 06 02 00 06. The official QCY application reports
+        // 2.0.6 as the installed version, which confirms the decoding.
+        var reading = QcyFirmwareReading.Parse([0x02, 0x00, 0x06, 0x02, 0x00, 0x06]);
+        Assert.IsNotNull(reading);
+        Assert.AreEqual("2.0.6", reading.Left);
+        Assert.AreEqual("2.0.6", reading.Right);
+        Assert.AreEqual("L 2.0.6 · R 2.0.6", reading.Display);
+        Assert.AreEqual(QcyFormatEvidence.HardwareConfirmed, reading.Evidence);
     }
 
     [TestMethod]
-    public void FirmwareCandidateDecodesOnlyTheTwoDocumentedLengths()
+    public void FirmwareDecodesBothSidesIndependently()
     {
-        Assert.AreEqual("3.0.13", QcyFirmwareCandidate.Parse([3, 0, 13]));
-        Assert.AreEqual("L 3.0.13 · R 3.0.14", QcyFirmwareCandidate.Parse([3, 0, 13, 3, 0, 14]));
-        Assert.AreEqual("0.0.0", QcyFirmwareCandidate.Parse([0, 0, 0]));
+        var reading = QcyFirmwareReading.Parse([3, 0, 13, 3, 0, 14]);
+        Assert.IsNotNull(reading);
+        Assert.AreEqual("3.0.13", reading.Left);
+        Assert.AreEqual("3.0.14", reading.Right);
+        Assert.AreEqual("L 3.0.13 · R 3.0.14", reading.Display);
     }
 
     [TestMethod]
-    public void FirmwareCandidateReportsEveryOtherLengthAsUnknown()
+    public void ThreeByteFirmwareKeepsTheWeakerEvidenceLevel()
+    {
+        // This layout comes from public sources and was never observed on an
+        // HT08, so it must not inherit the six-byte hardware confirmation.
+        var reading = QcyFirmwareReading.Parse([3, 0, 13]);
+        Assert.IsNotNull(reading);
+        Assert.AreEqual("3.0.13", reading.Left);
+        Assert.IsNull(reading.Right);
+        Assert.AreEqual("3.0.13", reading.Display);
+        Assert.AreEqual(QcyFormatEvidence.PublicUnconfirmed, reading.Evidence);
+
+        var zero = QcyFirmwareReading.Parse([0, 0, 0]);
+        Assert.IsNotNull(zero);
+        Assert.AreEqual("0.0.0", zero.Left);
+    }
+
+    [TestMethod]
+    public void FirmwareReportsEveryOtherLengthAsUnknown()
     {
         foreach (var payload in new byte[][]
         {
             [], [1], [1, 2], [1, 2, 3, 4], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 6, 7], new byte[20],
         })
         {
-            Assert.IsNull(QcyFirmwareCandidate.Parse(payload));
+            Assert.IsNull(QcyFirmwareReading.Parse(payload));
         }
 
         // ASCII must not be decoded as a version without evidence: "1.2.3" is
         // five bytes, so it stays an unknown format rather than a string.
-        Assert.IsNull(QcyFirmwareCandidate.Parse(System.Text.Encoding.ASCII.GetBytes("1.2.3")));
+        Assert.IsNull(QcyFirmwareReading.Parse(System.Text.Encoding.ASCII.GetBytes("1.2.3")));
     }
 
     [TestMethod]
-    public void DecodedLayoutsAreLabelledHardwareConfirmed()
-    {
-        Assert.AreEqual(QcyFormatEvidence.HardwareConfirmed, QcyBatteryCandidate.Evidence);
-        Assert.AreEqual(QcyFormatEvidence.HardwareConfirmed, QcyFirmwareCandidate.Evidence);
-    }
+    public void BatteryLayoutIsLabelledHardwareConfirmed() =>
+        Assert.AreEqual(QcyFormatEvidence.HardwareConfirmed, QcyBatteryReading.Evidence);
 
     [TestMethod]
     public void TheOptInReadIsItsOwnModeAndIsNeverImpliedByDiscovery()
