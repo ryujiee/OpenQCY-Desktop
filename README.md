@@ -54,6 +54,8 @@ The N70 firmware tested here exposes touch mappings directly and supports the pa
 
 Firmware flashing, account features, telemetry, ads, and store pages are explicitly out of scope.
 
+**MeloBuds Pro / HT08 investigation:** the diagnostic Probe supports `--discovery-only`, with GATT enumeration and allowlisted standard reads. A physical MeloBuds Pro was identified on September 11, 2026 as vendor ID `19786` (`0x4D4A`), and its GATT topology was recorded. It exposes neither the standard Battery Service nor Device Information Service, so battery and firmware stay unknown. HT08 proprietary controls — reads included — remain disabled while the command protocol is unverified. See [safe discovery instructions and evidence requirements](docs/ht08-discovery.md).
+
 ## Technology
 
 - C# 14 and .NET 10 LTS

@@ -2,6 +2,8 @@
 
 Status: **hardware validated for the core Windows control path**.
 
+For the separate **discovery-only** MeloBuds Pro / HT08 milestone, see [HT08 discovery](ht08-discovery.md). No N70 commands described below are enabled for HT08.
+
 ## Tested device
 
 | Field | Result |

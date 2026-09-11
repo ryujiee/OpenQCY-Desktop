@@ -16,11 +16,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Protocol\OpenQCY.Protocol.csproj" />
+    <ProjectReference Include="..\Device\OpenQCY.Device.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="..\Services\DeviceProfile.cs" Link="Services\DeviceProfile.cs" />
     <Compile Include="..\Services\ProfileStore.cs" Link="Services\ProfileStore.cs" />
     <Compile Include="..\Services\WindowsStartupService.cs" Link="Services\WindowsStartupService.cs" />
+    <Compile Include="..\Diagnostics\OpenQCY.Probe\ProbeOptions.cs" Link="Diagnostics\ProbeOptions.cs" />
   </ItemGroup>
 </Project>

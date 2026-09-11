@@ -37,6 +37,11 @@ public sealed class QcyDeviceClient : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(connection);
+        if (!connection.ModelProfile.SupportsN70Control)
+        {
+            throw new NotSupportedException("This model supports discovery only; N70 commands and subscriptions are disabled.");
+        }
+
         var client = new QcyDeviceClient(connection);
         try
         {

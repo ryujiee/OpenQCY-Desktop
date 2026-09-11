@@ -2,13 +2,36 @@ using System.Text;
 using OpenQCY_Desktop.Bluetooth;
 using OpenQCY_Desktop.Device;
 using OpenQCY_Desktop.Protocol;
+using OpenQCY_Desktop.Diagnostics;
 
 Console.OutputEncoding = Encoding.UTF8;
-var willDisableWearDetection = args.Contains("--disable-wear-detection", StringComparer.OrdinalIgnoreCase);
-var windowsBatteryOnly = args.Contains("--windows-battery", StringComparer.OrdinalIgnoreCase);
+ProbeOptions options;
+try
+{
+    options = ProbeOptions.Parse(args);
+}
+catch (ArgumentException exception)
+{
+    Console.Error.WriteLine(exception.Message);
+    return 1;
+}
+
+if (options.Help)
+{
+    Console.WriteLine(ProbeOptions.Usage);
+    return 0;
+}
+
+if (options.DiscoveryOnly)
+{
+    return await DiscoveryProbe.RunAsync(options);
+}
+
+var willDisableWearDetection = options.DisableWearDetection;
+var windowsBatteryOnly = options.WindowsBatteryOnly;
 Console.WriteLine(willDisableWearDetection
     ? "OpenQCY Probe · diagnostics and requested wear-detection change"
-    : "OpenQCY Probe · read-only local diagnostics");
+    : windowsBatteryOnly ? "OpenQCY Probe · Windows battery cache" : "OpenQCY Probe · N70 state queries (sends proprietary GATT writes)");
 Console.WriteLine("Open the case and keep both earbuds near the computer.");
 
 var transport = new WindowsBluetoothTransport();
@@ -36,12 +59,20 @@ if (devices.Count == 0)
 
 foreach (var device in devices)
 {
+    var batterySummary = device.ModelProfile.SupportsN70Control
+        ? $"L {device.LeftBattery}% / R {device.RightBattery}% / case {device.CaseBattery}%"
+        : "battery not interpreted for this model";
     Console.WriteLine(
         $"Found: {device.Name} · vendor {device.VendorId} · RSSI {device.SignalStrength} dBm · " +
-        $"L {device.LeftBattery}% / R {device.RightBattery}% / case {device.CaseBattery}%");
+        batterySummary);
 }
 
-var target = devices.FirstOrDefault(device => QcyUuids.IsN70(device.VendorId)) ?? devices[0];
+var target = devices.FirstOrDefault(device => device.ModelProfile.SupportsN70Control);
+if (target is null)
+{
+    Console.Error.WriteLine("No supported N70 found. For HT08 or unknown models use --discovery-only; no commands sent.");
+    return 2;
+}
 Console.WriteLine($"Connecting to the {target.Name} control channel…");
 
 await using var connection = await transport.ConnectAsync(target);

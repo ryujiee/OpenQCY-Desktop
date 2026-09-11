@@ -1,7 +1,10 @@
+using OpenQCY_Desktop.Protocol;
+
 namespace OpenQCY_Desktop.Bluetooth;
 
 public interface IBluetoothDeviceConnection : IAsyncDisposable
 {
+    QcyModelProfile ModelProfile { get; }
     string Name { get; }
     ulong BluetoothAddress { get; }
     bool IsConnected { get; }

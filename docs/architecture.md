@@ -10,7 +10,7 @@ OpenQCY Desktop separates UI, device behavior, transport, and protocol encoding 
 4. **Protocol** — the platform-neutral `OpenQCY.Protocol` project implements advertisement parsing, `0xFF` framing, typed commands, and parsers. It has no WinUI or Windows Bluetooth dependency.
 5. **Persistence** — `ProfileStore` keeps a versioned JSON profile under the current user's local application data and migrates older profile shapes.
 
-The diagnostic console uses the same Bluetooth, device, and protocol projects as the desktop app. It is read-only by default; its only mutating option is the explicit `--disable-wear-detection` switch.
+The diagnostic console uses the same Bluetooth, device, and protocol projects as the desktop app. Its default N70 state queries send proprietary GATT writes; `--disable-wear-detection` additionally changes a setting. Use `--discovery-only` for enumeration and allowlisted standard reads without application GATT writes or notification subscriptions. See [HT08 discovery and safety audit](ht08-discovery.md).
 
 ## Connection flow
 
@@ -23,11 +23,14 @@ The diagnostic console uses the same Bluetooth, device, and protocol projects as
 
 ## Capability model
 
+`QcyModelProfile` gates access to the existing N70 command session. HT08 and unknown models have no proprietary control capability. Discovery returns service/characteristic value records rather than a writable device connection; it never constructs `QcyDeviceClient`.
+
 Capabilities are inferred from characteristics and successful typed responses, not just from the product name. For example, firmware 3.0.13 exposes direct key mappings at `0000000D` and the parametric EQ response `0x22`, but not the legacy preset characteristic `0000000B`. The UI consequently enables gestures and the custom curve while leaving direct preset switching disabled.
 
 ## Safety boundary
 
 - Unknown vendor IDs are discoverable for diagnostics but are not selected as an N70 target automatically.
+- Windows-cache enumeration only reports an endpoint as N70 when its name identifies it as one; A001 alone is not model identity. A cached or remembered address whose resolved endpoint names itself as a different model is refused before command initialization, while a control endpoint reporting no name keeps the existing reconnect behaviour.
 - Commands are serialized through a lock and must receive a notification or query confirmation.
 - Missing characteristics and unconfirmed writes produce an error instead of a success state.
 - No address, Bluetooth capture, account data, or device telemetry is uploaded.

@@ -11,6 +11,22 @@ public sealed record QcyAdvertisement(
     ulong? ControlAddress,
     ulong? OtherAddress)
 {
+    public static ushort? ParseVendorId(ReadOnlySpan<byte> data) =>
+        data.Length >= 2 ? (ushort)((data[0] << 8) | data[1]) : null;
+
+    // Only identity bytes are shared by default. Unknown fields may contain
+    // addresses or other identifiers, including layouts not yet understood.
+    public static string RedactManufacturerData(ReadOnlySpan<byte> data)
+    {
+        var bytes = new string[data.Length];
+        for (var index = 0; index < data.Length; index++)
+        {
+            bytes[index] = data.Length >= 2 && index < 2 ? data[index].ToString("X2") : "XX";
+        }
+
+        return string.Join(" ", bytes);
+    }
+
     public static QcyAdvertisement? Parse(ReadOnlySpan<byte> data)
     {
         if (data.Length < 8)

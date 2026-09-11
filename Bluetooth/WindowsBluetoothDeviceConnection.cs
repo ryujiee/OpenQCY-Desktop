@@ -1,6 +1,7 @@
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Storage.Streams;
+using OpenQCY_Desktop.Protocol;
 using WindowsGattValueChangedEventArgs = Windows.Devices.Bluetooth.GenericAttributeProfile.GattValueChangedEventArgs;
 
 namespace OpenQCY_Desktop.Bluetooth;
@@ -17,17 +18,20 @@ internal sealed class WindowsBluetoothDeviceConnection : IBluetoothDeviceConnect
     private WindowsBluetoothDeviceConnection(
         BluetoothLEDevice device,
         GattDeviceService service,
-        Dictionary<Guid, GattCharacteristic> characteristics)
+        Dictionary<Guid, GattCharacteristic> characteristics,
+        QcyModelProfile modelProfile)
     {
         _device = device;
         _service = service;
         _session = service.Session;
         _characteristics = characteristics;
+        ModelProfile = modelProfile;
         _session.MaintainConnection = true;
         _device.ConnectionStatusChanged += Device_ConnectionStatusChanged;
     }
 
     public string Name => string.IsNullOrWhiteSpace(_device.Name) ? "QCY device" : _device.Name;
+    public QcyModelProfile ModelProfile { get; }
     public ulong BluetoothAddress => _device.BluetoothAddress;
     public bool IsConnected => _device.ConnectionStatus == BluetoothConnectionStatus.Connected;
 
@@ -47,6 +51,7 @@ internal sealed class WindowsBluetoothDeviceConnection : IBluetoothDeviceConnect
     public static async Task<WindowsBluetoothDeviceConnection> CreateAsync(
         BluetoothLEDevice device,
         GattDeviceService service,
+        QcyModelProfile modelProfile,
         CancellationToken cancellationToken)
     {
         try
@@ -61,7 +66,8 @@ internal sealed class WindowsBluetoothDeviceConnection : IBluetoothDeviceConnect
             return new WindowsBluetoothDeviceConnection(
                 device,
                 service,
-                result.Characteristics.ToDictionary(characteristic => characteristic.Uuid));
+                result.Characteristics.ToDictionary(characteristic => characteristic.Uuid),
+                modelProfile);
         }
         catch
         {

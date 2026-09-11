@@ -51,11 +51,7 @@
     <Compile Remove="Bluetooth\**\*.cs" />
     <Compile Remove="Device\**\*.cs" />
     <Compile Remove="Diagnostics\**\*.cs" />
-    <Compile Remove="Protocol\QcyAdvertisement.cs" />
-    <Compile Remove="Protocol\QcyCommands.cs" />
-    <Compile Remove="Protocol\QcyPacket.cs" />
-    <Compile Remove="Protocol\QcyUuids.cs" />
-    <Compile Remove="Protocol\obj\**\*.cs" />
+    <Compile Remove="Protocol\**\*.cs" />
     <Content Remove="tests\**\*" />
     <None Remove="tests\**\*" />
   </ItemGroup>
